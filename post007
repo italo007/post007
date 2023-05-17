@@ -439,6 +439,7 @@ for url in url_list:
 
                 # Requisição para criar a imagem destacada
                 import time
+
                 # Número máximo de tentativas
                 max_attempts = 3
                 current_attempt = 1
@@ -490,6 +491,7 @@ for url in url_list:
                 if current_attempt > max_attempts:
                     print(f"Falha após {max_attempts} tentativas. Verifique a conexão e tente novamente mais tarde.")
                     exit()
+
 
 
             # Requisição POST para criar novo post no blog WordPress
