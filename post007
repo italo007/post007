@@ -1,1 +1,467 @@
+import requests
+from bs4 import BeautifulSoup
+import xml.etree.ElementTree as ET
+import openai
+import time
+import os
+import string
+#import uuid
+import json
+from datetime import datetime #, timedelta
+from dotenv import load_dotenv
+from PIL import Image
+import io
+#from googleapiclient.discovery import build
+#import urllib
 
+# Carregar variáveis de ambiente
+load_dotenv()
+
+
+# Definir dicionário de categorias
+categorias = {
+    "alergias": 55,
+    "anemia": 52,
+    "atividades": 95,
+    "bebes": 85,
+    "beleza-e-cosmetica": 31,
+    "bem-estar": 56,
+    "bulas": 35,
+    "clinica-geral": 20,
+    "colesterol": 50,
+    "coronavirus": 94,
+    "dengue": 41,
+    "desenvolvimento": 95,
+    "diabetes": 66,
+    "dieta-e-nutricao": 24,
+    "disturbios-do-sangue": 54,
+    "disturbios-do-sono": 32,
+    "disturbios-gastrointestinais": 46,
+    "doencas-auto-imunes": 30,
+    "doencas-cardiacas": 50,
+    "doencas-de-pele": 76,
+    "doencas-degenerativas": 48,
+    "doencas-geneticas": 23,
+    "doencas-hormonais": 96,
+    "doencas-infecciosas": 33,
+    "doencas-ortopedicas": 37,
+    "doencas-raras": 45,
+    "doencas-respiratorias": 42,
+    "emagrecer": 22,
+    "exames-de-diagnostico": 25,
+    "fertilidade-e-controle-de-natalidade": 38,
+    "fitness": 58,
+    "gravidez": 29,
+    "higiene-bebes": 53,
+    "medicina-alternativa": 49,
+    "menopausa": 27,
+    "odontologia": 51,
+    "oftalmologia": 43,
+    "plantas-medicinais": 49,
+    "primeiros-socorros": 40,
+    "receitas-recheadas-de-saude": 59,
+    "remedios-caseiros": 39,
+    "saude": 20,
+    "saude-masculina": 26,
+    "sintomas": 28,
+    "transtornos-psicologicos": 36,
+    "vida-intima": 27
+}
+
+
+# Carregar chave da API OpenAI
+openai.api_key = os.getenv('OPENAI_API_KEY')
+
+# Setar a chave de API do Google no início do código
+chave_api = 'AIzaSyAIGoJpahAFb68A4xP7klLG9CBqO4jw6Ek'
+id_pesquisa_personalizada = '1161b6cc52d444ebc'
+
+# Carregar dados e títulos processados de arquivo JSON
+json_filename = 'tua-data.json'
+if os.path.exists(json_filename):
+    with open(json_filename, 'r') as json_file:
+        data = json.load(json_file)
+        processed_titles = [item['title'] for item in data]
+else:
+    data = []
+    processed_titles = []
+
+# Função para salvar dados em arquivo JSON
+def save_data(data):
+    with open(json_filename, 'w') as json_file:
+        json.dump(data, json_file)
+
+
+# Configuração das credenciais e cabeçalhos de autenticação da API WordPress - testes
+#api_url = "https://girodiario.com.br/wordpress/wp-json/wp/v2"
+api_url = "https://postsaude.com/wp-json/wp/v2"
+
+# Configuração das credenciais e cabeçalhos de autenticação da API WordPress - producao
+#api_url = "https://girodiario.com.br/wp-json/wp/v2"
+
+# Credenciais de autenticação [ambiente producao Giro]
+#usuario = "GD"
+#senha = "Kb3tUsHjo0DrbzyRdEB7lLp9"
+
+# Credenciais de autenticação [ambiente teste] Giro
+#usuario = "GD"
+#senha = "NuT3R8QFm6qqnsK4yXjwIlNS" GD
+
+# Credenciais de autenticação [ambiente producao PostSaude]
+usuario = "PS9"
+senha = "5AwFCzTuRnGuZ83nQ9bHgK1S"
+
+
+
+
+# Extrai as URLs do arquivo XML
+url_xml = 'https://www.tuasaude.com/sitemap.xml'
+response = requests.get(url_xml)
+if response.status_code != 200:
+    print(f"Erro ao acessar a URL {url_xml}. Status code: {response.status_code}")
+    exit()
+tree = ET.fromstring(response.content)
+urls = []
+for url in tree.findall('.//{http://www.sitemaps.org/schemas/sitemap/0.9}url'):
+    loc = url.find('{http://www.sitemaps.org/schemas/sitemap/0.9}loc').text
+    urls.append(loc)
+
+# Itera sobre as URLs e extrai os dados
+# Loop para processar as URLs
+for url in urls[:750]:
+    response = requests.get(url)
+    if response.status_code != 200:
+        print(f"Erro ao acessar a URL {url}. Status code: {response.status_code}")
+        continue
+    soup = BeautifulSoup(response.content, 'html.parser')
+    titulo_tag = soup.find('h1')
+    if titulo_tag:
+        titulo = titulo_tag.text.strip()
+        img_tag = soup.find('source', {'type': 'image/webp'})
+        if img_tag:
+            img_url = img_tag['srcset'].split(', ')[-1].split(' ')[0]
+            img_path = img_url
+        else:
+            img_path = None
+        print(f"Título: {titulo}")
+        print(f"URL: {url}")
+        if img_path:
+            print(f"Imagem: {img_path}")
+        else:
+            print("Não foi encontrada nenhuma imagem na página")
+
+        print('-' * 50)
+
+        # Extrair o valor do campo "category"
+        scripts = soup.find_all('script')
+        for script in scripts:
+            if 'category' in script.text:
+                category_str = script.text.split('"category":')[1].split(',')[0]
+                categoria_fonte = category_str.strip('[').strip(']').strip('"')
+                print(f"Categoria: {categoria_fonte}")
+                break
+        else:
+            print("Categoria não encontrada")
+            categoria_fonte = None
+
+
+        # Verificar se o título já foi processado
+        if titulo in processed_titles:
+            print(f"Title '{titulo}' already processed. Skipping.")
+            continue
+
+        # Adicionar título à lista de títulos processados
+        processed_titles.append(titulo)
+
+
+        # Reescrever título usando OpenAI GPT-4
+        if titulo:
+            print(f"Title before rewriting: {titulo}")
+            print("Aguardando Retorno OpenAI Título")
+            title_prompt = f"Reescreva o título do artigo a seguir mais envolvente e digno de clique, com no máximo 2 linhas curtas:\n\n{titulo}"
+
+            try:
+                title_response = openai.Completion.create(engine="text-davinci-003", prompt=title_prompt, max_tokens=50, n=1, stop=None, temperature=0.5)
+                time.sleep(15)  # Espera 15 segundos antes de fazer a próxima chamada
+                if title_response.choices[0].text:
+                    new_title = title_response.choices[0].text.strip()
+                else:
+                    new_title = titulo
+                print(f"Novo título: {new_title}")
+            except openai.error.APIError as e:
+                print(f"Erro ao obter novo título: {e}")
+                time.sleep(60)
+                title_response = openai.Completion.create(engine="text-davinci-003", prompt=title_prompt, max_tokens=50, n=1, stop=None, temperature=0.6)
+                if title_response.choices[0].text:
+                    new_title = title_response.choices[0].text.strip()
+                else:
+                    new_title = titulo
+                print(f"Novo título: {new_title}")
+
+        # Criar tópicos
+        print("Aguardando Retorno OpenAI Tópicos")
+        topic_prompt = f"Criar os tópicos para o artigo baseado no novo título:\n\n{new_title}"
+
+        try:
+            topic_response = openai.Completion.create(engine="text-davinci-003", prompt=topic_prompt, max_tokens=200, n=3, stop=None, temperature=0.5)
+            time.sleep(15)  # Espera 15 segundos antes de fazer a próxima chamada
+            if topic_response.choices[0].text:
+                topics = topic_response.choices[0].text.strip().split("\n")
+            else:
+                topics = []
+            print(f"Tópicos gerados: {topics}")
+        except openai.error.APIError as e:
+            print(f"Erro ao gerar os tópicos: {e}")
+            time.sleep(60)
+            topic_response = openai.Completion.create(engine="text-davinci-003", prompt=topic_prompt, max_tokens=200, n=3, stop=None, temperature=0.6)
+            if topic_response.choices[0].text:
+                topics = topic_response.choices[0].text.strip().split("\n")
+            else:
+                topics = []
+            print(f"Tópicos gerados: {topics}")
+
+        # Criar conteúdo para cada tópico
+        content = ""
+        for topic in topics:
+            print(f"Gerando conteúdo para o tópico: {topic}")
+            content_prompt = f"Escrever o conteúdo para o tópico:\n\n{topic}"
+
+            try:
+                content_response = openai.Completion.create(engine="text-davinci-003", prompt=content_prompt, max_tokens=500, n=1, stop=None, temperature=0.7)
+                time.sleep(15)  # Espera 15 segundos antes de fazer a próxima chamada
+                if content_response.choices[0].text:
+                    topic_content = content_response.choices[0].text.strip()
+                else:
+                    topic_content = ""
+                content += f"\n\n{topic}\n\n{topic_content}"
+            except openai.error.APIError as e:
+                print(f"Erro ao obter o conteúdo para o tópico: {e}")
+                time.sleep(60)
+                content_response = openai.Completion.create(engine="text-davinci-003", prompt=content_prompt, max_tokens=500, n=1, stop=None, temperature=0.7)
+                if content_response.choices[0].text:
+                    topic_content = content_response.choices[0].text.strip()
+                else:
+                    topic_content = ""
+                content += f"\n\n{topic}\n\n{topic_content}"
+
+        # Estruturar o conteúdo completo
+        full_content = f"{new_title}\n\n{content}"
+
+        print("Novo conteúdo:")
+        print(full_content[:500])
+
+
+            # Gerando um nome de arquivo aleatório
+            #imagem_destacada_nome = f"{uuid.uuid4()}.webp"
+
+
+            # Verificar se há uma imagem em destaque
+            #print(img_path)
+            #if img_path:
+                # Gerar um nome de arquivo aleatório
+            #    imagem_destacada_nome = f"{uuid.uuid4()}.webp"
+
+            # Buscar imagem relacionada ao título no Google Imagens
+            #service = build("customsearch", "v1", developerKey=chave_api)
+            #res = service.cse().list(q=titulo, cx=id_pesquisa_personalizada, searchType='image').execute()
+            #if 'items' in res and len(res['items']) > 0:
+            #    imagem_url = res['items'][0]['link']
+            #    print(f"Imagem relacionada encontrada: {imagem_url}")
+            #else:
+            #    print("Não foi encontrada nenhuma imagem relacionada ao título")
+
+            # Verificar se há uma imagem em destaque nome da imagem novo
+            print(img_path)
+            if img_path:
+                # Gerar nome de arquivo com as duas primeiras palavras do título e extensão .webp
+                translator = str.maketrans("", "", string.punctuation + "/.")
+                new_title_clean = new_title.translate(translator).lower().replace(' ', '-')
+                new_title_words = new_title_clean.split("-")[:12]
+                new_title_clean = "-".join(new_title_words)
+                imagem_destacada_nome = f"{new_title_clean}.webp".replace("\n", " ")
+
+                # Configurar o cabeçalho da requisição para a criação da imagem destacada
+                headers = {
+                    "Content-Disposition": f"attachment; filename={imagem_destacada_nome.encode('utf-8').decode('latin-1')}",
+                    "Content-Type": "image/webp",
+                }
+
+                # Realizar o download da imagem da URL
+                response = requests.get(img_path)
+                response.raise_for_status()
+
+
+                # Carregar a imagem
+                original_image = Image.open(io.BytesIO(response.content))
+
+                # Obter o tamanho original da imagem
+                original_size = len(response.content)
+                print(f"Tamanho original da imagem: {original_size} bytes")
+
+                # Obter a resolução da imagem original
+                original_width, original_height = original_image.size
+                print(f"Resolução da imagem original: {original_width} x {original_height} pixels")
+
+
+                # Obter as dimensões da imagem
+                width, height = original_image.size
+
+                # Definir as dimensões para os formatos landscape e square
+                landscape_width, landscape_height = 1300, 800
+                square_width, square_height = 1200, 1200
+
+                # Verificar se a imagem precisa ser redimensionada
+                if original_image.width < square_width or original_image.height < square_height:
+                    # Calcular a proporção de redimensionamento
+                    landscape_ratio = landscape_width / landscape_height
+                    square_ratio = square_width / square_height
+                    image_ratio = original_image.width / original_image.height
+
+                    # Redimensionar a imagem para o formato landscape
+                    if image_ratio > landscape_ratio:
+                        new_width = landscape_width
+                        new_height = int(new_width / image_ratio)
+                    # Redimensionar a imagem para o formato square
+                    else:
+                        new_height = square_height
+                        new_width = int(new_height * image_ratio)
+
+                    # Redimensionar a imagem
+                    resized_image = original_image.resize((new_width, new_height))
+                else:
+                    # Calcular a proporção de redimensionamento
+                    landscape_ratio = landscape_width / landscape_height
+                    square_ratio = square_width / square_height
+                    image_ratio = original_image.width / original_image.height
+
+                    # Verificar se a imagem precisa ser redimensionada para o formato landscape
+                    if image_ratio > landscape_ratio:
+                        new_width = landscape_width
+                        new_height = int(new_width / image_ratio)
+                        # Redimensionar a imagem
+                        resized_image = original_image.resize((new_width, new_height))
+                    else:
+                        # Redimensionar a imagem para o formato square
+                        new_height = square_height
+                        new_width = int(new_height * image_ratio)
+                        # Redimensionar a imagem
+                        resized_image = original_image.resize((new_width, new_height))
+
+                # Converter a imagem para o formato RGB
+                converted_image = resized_image.convert("RGB")
+
+                # Obter a resolução da imagem redimensionada
+                resized_width, resized_height = converted_image.size
+                print(f"Resolução da imagem redimensionada: {resized_width} x {resized_height} pixels")
+
+
+
+                # Comprimir a imagem
+                compressed_image = io.BytesIO()
+
+                converted_image.save(compressed_image, format='WebP', quality=65)
+                compressed_image.seek(0)
+
+                # Obter o tamanho da imagem comprimida
+                compressed_size = len(compressed_image.getvalue())
+                print(f"Tamanho da imagem comprimida: {compressed_size} bytes")
+
+                # Obter o tamanho da imagem comprimida
+                compressed_size = len(compressed_image.getvalue())
+                print(f"Tamanho da imagem comprimida: {compressed_size} bytes")
+
+                # Requisição para criar a imagem destacada
+                try:
+                    import sys
+                    sys.stdout.reconfigure(encoding='utf-8')
+                    print(f"Enviando imagem '{img_path[:50]}' para o WordPress...")
+
+                    imagem_destacada_resposta = requests.post(
+                        api_url + "/media",
+                        auth=(usuario, senha),
+                        headers=headers,
+                        data=compressed_image.read()
+                    )
+                    imagem_destacada_resposta.raise_for_status()
+                    imagem_destacada_resposta_json = imagem_destacada_resposta.json()
+
+                    if "id" in imagem_destacada_resposta_json:
+                        imagem_destacada_id = imagem_destacada_resposta_json["id"]
+                        sys.stdout.reconfigure(encoding='utf-8')
+                        print(f"Arquivo de imagem baixado: {imagem_destacada_nome[:50]}")
+                    else:
+                        print("Erro ao criar imagem destacada")
+                        print(imagem_destacada_resposta_json)
+                        exit()
+                except requests.exceptions.RequestException as e:
+                    print("Erro ao criar imagem destacada")
+                    print(f"Exception: {e}")
+                    exit()
+            else:
+                # Caso não haja imagem em destaque, definir imagem_destacada_id como None
+                imagem_destacada_id = None
+
+
+
+            # Verificar se a categoria extraída da fonte de dados está mapeada no dicionário de categorias
+            categoria_id = categorias.get(categoria_fonte)
+            if categoria_id is None:
+                if categoria_fonte is not None:
+                    print(f"Categoria {categoria_fonte} não mapeada. O post será criado sem categoria.")
+                else:
+                    print("Categoria não encontrada na fonte de dados. O post será criado sem categoria.")
+            else:
+                print(f"Categoria {categoria_fonte} mapeada com sucesso para a categoria {categoria_id}.")
+
+            # Criando uma lista com o valor de categoria_fonte como tag
+            #tags = [categoria_fonte]
+
+            # Requisição POST para criar novo post no blog WordPress
+            headers = {"Content-Type": "application/json"}
+            if imagem_destacada_id:
+                dados = {
+                    "title": new_title,
+                    "content": new_content,
+                    "featured_media": imagem_destacada_id,
+                    "status": "draft",
+                    "comment_status": "closed",
+                    "ping_status": "closed",
+                    "categories": [categoria_id],
+                    #"tags": tags
+                    #"categories": 34
+                }
+            else:
+                dados = {
+                    "title": new_title,
+                    "content": new_content,
+                    "status": "draft",
+                    "comment_status": "closed",
+                    "ping_status": "closed",
+                    "categories": [categoria_id],
+                    "featured_media": 0,
+                    #"tags": tags
+                }
+
+            # Adicionando a linha da categoria ao conteúdo
+            #categoria_link = f"https://postsaude.com/p/{categoria_nome[categoria_id]}/"  # Substitua "seusite.com" pelo seu domínio
+            #dados["content"] += f"\n\nCategoria: <a href='{categoria_link}'>{categoria_nome[categoria_id]}</a>"
+
+            post_resposta = requests.post(api_url + "/posts?_embed", auth=(usuario, senha), headers=headers, json=dados)
+
+            # Verificar se a requisição foi bem-sucedida
+            if post_resposta.status_code == 201:
+                print("Artigo enviado com sucesso ao blog!")
+            else:
+                print(f"Erro ao enviar o artigo: {post_resposta.content}")
+
+            # Adicionar item processado à lista de dados
+            data.append({
+                'title': titulo,
+                'link': url,
+                'processed_at': str(datetime.now())
+            })
+
+            # Salvar dados no arquivo JSON
+            save_data(data)
+            print("Aguardando 60 segundos para continuar")
+            time.sleep(60)
